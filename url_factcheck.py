@@ -3,111 +3,131 @@ import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 import markdown
+from duckduckgo_search import DDGS
 
 # ページ設定
-st.set_page_config(page_title="AI Fact Checker Pro", layout="wide")
+st.set_page_config(page_title="AI Fact Checker Pro (Live Search)", layout="wide")
 
-# --- セッションステートの初期化（データを記憶する箱を作る） ---
+# --- セッションステートの初期化 ---
 if 'result_md' not in st.session_state:
     st.session_state.result_md = None
 if 'source_text' not in st.session_state:
     st.session_state.source_text = None
+if 'search_log' not in st.session_state:
+    st.session_state.search_log = None
 
-# --- サイドバー：設定とガイド ---
+# --- サイドバー ---
 with st.sidebar:
     st.header("⚙️ 設定")
-    
-    # APIキー取得ガイド
-    with st.expander("❓ APIキーの取得方法（図解）"):
+    with st.expander("❓ APIキーの取得方法"):
         st.markdown("""
-        1. **[Google AI Studio](https://aistudio.google.com/app/apikey)** にアクセスします。
-        2. Googleアカウントでログインします。
-        3. 左上の **"Create API key"** をクリックします。
-        4. **"Create API key in new project"** を選択します。
-        5. 生成された `AIzaSy...` から始まるキーをコピーします。
-        6. 下の入力欄に貼り付けます。
+        1. **[Google AI Studio](https://aistudio.google.com/app/apikey)** にアクセス。
+        2. "Create API key" をクリック。
+        3. キーをコピーして下に貼り付け。
         """)
-        st.info("※APIキーはブラウザ内でのみ使用され、外部に保存されることはありません。")
-
-    # APIキー入力欄
+    
     api_key = st.text_input("Google Gemini APIキー", type="password", placeholder="AIzaSy...")
     
-    # モデル選択
     model_name = st.selectbox(
         "使用モデル",
         ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
-        index=0,
-        help="最新の gemini-2.5-flash を推奨します"
+        index=0
     )
     
-    # リセットボタン（サイドバーにも配置）
-    if st.button("🗑️ 結果をクリアして初期化"):
+    if st.button("🗑️ 結果をクリア"):
         st.session_state.result_md = None
         st.session_state.source_text = None
+        st.session_state.search_log = None
         st.rerun()
 
 # --- メインエリア ---
-st.title("🛡️ AI Fact Checker Pro")
+st.title("🛡️ AI Fact Checker Pro (Live Search)")
 st.markdown("""
-Web記事のURLを入力すると、**科学的・歴史的な観点**からファクトチェックを行います。
-事実を歪めていたり、ニセ科学や陰謀論の疑いがある部分を抽出し、その理由を解説します。
+Web記事を読み込み、**最新のネット検索情報**と照らし合わせてファクトチェックを行います。
+AIの知識だけでなく、検索による裏付けを行うため、最新のニュース（人事や事件など）にも対応可能です。
 """)
 
-# URL入力
 url_input = st.text_input("検証したい記事のURL", placeholder="https://example.com/article...")
 
-# 分析ボタン
-if st.button("🔍 記事を読み込んで検証する", type="primary"):
+if st.button("🔍 検索して検証する", type="primary"):
     if not api_key:
-        st.error("サイドバーにAPIキーを入力してください！")
+        st.error("APIキーを入力してください")
     elif not url_input:
-        st.warning("URLを入力してください！")
+        st.warning("URLを入力してください")
     else:
-        # --- 処理開始 ---
-        status_area = st.empty() # 進行状況表示用
+        status_area = st.empty()
         
         try:
-            # 1. スクレイピング
-            status_area.info("🌐 Webページにアクセスして本文を抽出中...")
-            
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            }
+            # 1. 記事のスクレイピング
+            status_area.info("🌐 1/3 Webページを読み込んでいます...")
+            headers = {"User-Agent": "Mozilla/5.0"}
             response = requests.get(url_input, headers=headers, timeout=15)
             response.raise_for_status()
-            
             soup = BeautifulSoup(response.content, "html.parser")
             
-            # 不要なタグの削除
             for tag in soup(["script", "style", "header", "footer", "nav", "iframe"]):
                 tag.decompose()
             
-            # 本文抽出
             text_content = ""
             for tag in soup.find_all(['h1', 'h2', 'h3', 'p', 'li', 'article']):
                 text_content += tag.get_text() + "\n"
             
-            if len(text_content) > 20000:
-                text_content = text_content[:20000] + "...(以下省略)"
+            if len(text_content) > 15000:
+                text_content = text_content[:15000] + "..."
             
-            if len(text_content) < 100:
-                st.error("記事の本文がうまく取得できませんでした。")
+            if len(text_content) < 50:
+                st.error("本文が取得できませんでした。")
                 st.stop()
 
-            # 2. Geminiによる検証
-            status_area.info(f"🤖 AI ({model_name}) がファクトチェックを実行中...")
-            
+            # 2. 検索キーワードの抽出と検索実行
+            status_area.info("🌍 2/3 記事の内容について最新情報を検索中...")
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(model_name)
             
-            prompt = f"""
-            あなたは厳格な科学者であり、歴史家であり、ファクトチェッカーです。
-            以下のWeb記事のテキストを読み、**「科学的・歴史的に疑わしい記述（ニセ科学、陰謀論、事実の歪曲、デマ）」**だけを抽出して報告してください。
+            # 検索クエリを考える
+            query_prompt = f"""
+            以下のテキストの真偽を検証するために必要な「検索キーワード」を3つ作成してください。
+            特に、固有名詞、日付、役職、科学的用語に注目してください。
+            出力はキーワードのみをカンマ区切りで出してください。
+            
+            テキスト: {text_content[:2000]}
+            """
+            query_resp = model.generate_content(query_prompt)
+            search_queries = query_resp.text.strip()
+            
+            # DuckDuckGoで検索
+            search_results = ""
+            with DDGS() as ddgs:
+                # 生成されたクエリで検索（上位3件×3クエリ程度）
+                keywords = [k.strip() for k in search_queries.split(',')]
+                log_text = ""
+                
+                for keyword in keywords[:3]: # 最大3つのキーワードで検索
+                    results = list(ddgs.text(keyword, max_results=3))
+                    if results:
+                        log_text += f"**検索語:** {keyword}\n"
+                        for r in results:
+                            search_results += f"- {r['title']}: {r['body']}\n"
+                            log_text += f"  - {r['title']}\n"
+            
+            st.session_state.search_log = log_text # 検索ログを保存
 
-            【ルール】
-            - 科学的合意や歴史的事実に基づいている部分（青）や、単なる意見（黒）は無視してください。
-            - **「赤色（Dubious）」に相当する危険な記述だけ**を抜き出してください。
-            - もし疑わしい記述が一つもなければ、「この記事には、科学的・歴史的に明らかに誤った記述は見当たりませんでした」と報告してください。
+            # 3. 検索結果を使ったファクトチェック
+            status_area.info("🤖 3/3 検索結果と照らし合わせて検証中...")
+            
+            final_prompt = f"""
+            あなたは厳格なファクトチェッカーです。
+            以下の「検証対象テキスト」を、**「最新の検索結果」**およびあなたの知識に基づいて検証してください。
+
+            【重要】
+            - AIの学習データよりも、**「最新の検索結果」の情報を優先**してください（例：現在の首相、最新の科学的発見など）。
+            - 検索結果と矛盾する記述、または科学的・歴史的に疑わしい記述（ニセ科学、陰謀論、デマ）を抽出してください。
+
+            【検索された最新情報（エビデンス）】
+            {search_results}
+
+            【検証対象テキスト】
+            {text_content}
 
             【出力フォーマット】
             Markdown形式で出力してください。
@@ -117,88 +137,50 @@ if st.button("🔍 記事を読み込んで検証する", type="primary"):
             ## 疑わしい記述のリスト
             
             ### 1. [疑わしい記述の引用]
-            - **判定理由:** なぜこれが誤り、または疑わしいのかを科学的・歴史的根拠に基づいて簡潔に解説。
-
-            ### 2. [疑わしい記述の引用]
-            - **判定理由:** ...
+            - **判定:** 誤り / 疑義あり / ミスリード
+            - **理由:** [検索結果や科学的根拠に基づいた解説]
 
             ---
-            ※このレポートはAIによる生成です。最終的な判断は一次情報を確認してください。
+            ※このレポートはAIとWeb検索結果に基づいています。
 
-            【検証対象テキスト】
-            {text_content}
             """
             
-            response = model.generate_content(prompt)
+            final_resp = model.generate_content(final_prompt)
             
-            # 結果をセッションステートに保存（これでボタンを押しても消えない）
-            st.session_state.result_md = response.text
+            st.session_state.result_md = final_resp.text
             st.session_state.source_text = text_content
             
-            status_area.empty() # 進行状況を消す
+            status_area.empty()
 
-        except requests.exceptions.RequestException as e:
-            status_area.error(f"Webページへのアクセスに失敗しました: {e}")
         except Exception as e:
             status_area.error(f"エラーが発生しました: {e}")
 
-# --- 結果の表示（セッションステートにデータがある場合のみ表示） ---
+# --- 結果表示 ---
 if st.session_state.result_md:
     st.subheader("📊 検証結果")
     st.markdown(st.session_state.result_md)
+    
+    with st.expander("🔍 参照した検索データを見る"):
+        st.markdown(st.session_state.search_log)
+        
     st.markdown("---")
-
-    # --- 出力・保存エリア ---
+    
+    # 保存ボタンエリア
     st.subheader("💾 レポートの書き出し")
     col1, col2, col3 = st.columns(3)
-
-    # 1. テキスト形式 (.txt)
+    
     with col1:
-        st.download_button(
-            label="📄 Text形式で保存",
-            data=st.session_state.result_md,
-            file_name="factcheck_report.txt",
-            mime="text/plain"
-        )
-
-    # 2. Markdown形式 (.md)
+        st.download_button("📄 Text保存", st.session_state.result_md, "report.txt")
     with col2:
-        st.download_button(
-            label="📝 Markdown形式で保存",
-            data=st.session_state.result_md,
-            file_name="factcheck_report.md",
-            mime="text/markdown"
-        )
-
-    # 3. HTML形式 (.html)
+        st.download_button("📝 Markdown保存", st.session_state.result_md, "report.md")
     with col3:
         html_body = markdown.markdown(st.session_state.result_md)
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Fact Check Report</title>
-            <style>body {{ font-family: sans-serif; padding: 20px; line-height: 1.6; }} h1 {{ color: #d32f2f; }} strong {{ color: #d32f2f; }}</style>
-        </head>
-        <body>
-            {html_body}
-        </body>
-        </html>
-        """
-        st.download_button(
-            label="🌐 HTML形式で保存",
-            data=html_content,
-            file_name="factcheck_report.html",
-            mime="text/html"
-        )
-
-    # 読み込んだ原文の確認
-    with st.expander("読み込んだWebページの原文を確認する"):
-        st.text(st.session_state.source_text)
+        html_content = f"<html><body>{html_body}</body></html>"
+        st.download_button("🌐 HTML保存", html_content, "report.html", mime="text/html")
     
-    # メインエリア下部にもリセットボタン配置
     st.markdown("---")
-    if st.button("🔄 新しい記事を検証する（リセット）"):
+    if st.button("🔄 新しい記事を検証する"):
         st.session_state.result_md = None
         st.session_state.source_text = None
+        st.session_state.search_log = None
         st.rerun()
