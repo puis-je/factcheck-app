@@ -36,7 +36,7 @@ with st.sidebar:
         st.markdown("[Google AI Studio](https://aistudio.google.com/app/apikey) で取得して貼り付けてください。")
     api_key = st.text_input("Google Gemini APIキー", type="password", placeholder="AIzaSy...")
     
-    # モデル選択（2025年ラインナップ）
+    # モデル選択（指定されたリストのみ）
     st.subheader("🤖 モデル選択")
     
     # 表示名と実際のモデルIDの対応表
@@ -52,8 +52,7 @@ with st.sidebar:
     selected_label = st.selectbox(
         "使用するGeminiモデル",
         list(model_options.keys()),
-        index=0, # 0番目（Gemini 2.5 Flash）をデフォルトにする
-        help="基本は Gemini 2.5 Flash で十分ですが、複雑な検証には 3 Pro が有効です。"
+        index=0, # Gemini 2.5 Flash をデフォルトに
     )
     
     # モデルIDの決定
@@ -127,7 +126,7 @@ if st.button("🔍 検索して検証する", type="primary"):
             query_resp = model.generate_content(query_prompt)
             search_queries = query_resp.text.strip()
             
-            # DuckDuckGoで検索（件数を確保）
+            # DuckDuckGoで検索
             search_results = ""
             with DDGS() as ddgs:
                 keywords = [k.strip() for k in search_queries.split(',')]
