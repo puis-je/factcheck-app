@@ -4,9 +4,10 @@ import requests
 from bs4 import BeautifulSoup
 import markdown
 from duckduckgo_search import DDGS
+import datetime
 
 # ページ設定
-st.set_page_config(page_title="AI Fact Checker Pro (Live Search)", layout="wide")
+st.set_page_config(page_title="AI Fact Checker Pro (Date Aware)", layout="wide")
 
 # --- セッションステートの初期化 ---
 if 'result_md' not in st.session_state:
@@ -19,6 +20,19 @@ if 'search_log' not in st.session_state:
 # --- サイドバー ---
 with st.sidebar:
     st.header("⚙️ 設定")
+    
+    # 日付設定（ここが重要）
+    st.subheader("📅 基準日の設定")
+    # デフォルトはシステム上の今日だが、ユーザーが変更可能にする
+    default_date = datetime.date.today()
+    reference_date = st.date_input(
+        "「今日」をいつとして検証しますか？",
+        value=default_date,
+        help="記事の日付がこの設定日より未来の場合、AIは『未来の予測記事』と判断する可能性があります。"
+    )
+    
+    st.markdown("---")
+    
     with st.expander("❓ APIキーの取得方法"):
         st.markdown("""
         1. **[Google AI Studio](https://aistudio.google.com/app/apikey)** にアクセス。
@@ -41,10 +55,10 @@ with st.sidebar:
         st.rerun()
 
 # --- メインエリア ---
-st.title("🛡️ AI Fact Checker Pro (Live Search)")
-st.markdown("""
-Web記事を読み込み、**最新のネット検索情報**と照らし合わせてファクトチェックを行います。
-AIの知識だけでなく、検索による裏付けを行うため、最新のニュース（人事や事件など）にも対応可能です。
+st.title("🛡️ AI Fact Checker Pro (Date Aware)")
+st.markdown(f"""
+Web記事を読み込み、**設定された基準日（{reference_date.strftime('%Y/%m/%d')}）** および最新の検索結果に基づいてファクトチェックを行います。
+現在の日時を正しく認識させることで、「未来の記事だ」という誤判定を防ぎます。
 """)
 
 url_input = st.text_input("検証したい記事のURL", placeholder="https://example.com/article...")
@@ -84,11 +98,13 @@ if st.button("🔍 検索して検証する", type="primary"):
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(model_name)
             
-            # 検索クエリを考える
+            # 検索クエリ作成
             query_prompt = f"""
             以下のテキストの真偽を検証するために必要な「検索キーワード」を3つ作成してください。
-            特に、固有名詞、日付、役職、科学的用語に注目してください。
-            出力はキーワードのみをカンマ区切りで出してください。
+            
+            【重要】
+            **基準日（今日）は {reference_date} です。**
+            この日付時点での最新情報を検索するためのキーワードを選んでください。
             
             テキスト: {text_content[:2000]}
             """
@@ -98,11 +114,11 @@ if st.button("🔍 検索して検証する", type="primary"):
             # DuckDuckGoで検索
             search_results = ""
             with DDGS() as ddgs:
-                # 生成されたクエリで検索（上位3件×3クエリ程度）
                 keywords = [k.strip() for k in search_queries.split(',')]
                 log_text = ""
                 
-                for keyword in keywords[:3]: # 最大3つのキーワードで検索
+                for keyword in keywords[:3]:
+                    # 最新情報を得るために検索
                     results = list(ddgs.text(keyword, max_results=3))
                     if results:
                         log_text += f"**検索語:** {keyword}\n"
@@ -110,18 +126,23 @@ if st.button("🔍 検索して検証する", type="primary"):
                             search_results += f"- {r['title']}: {r['body']}\n"
                             log_text += f"  - {r['title']}\n"
             
-            st.session_state.search_log = log_text # 検索ログを保存
+            st.session_state.search_log = log_text
 
-            # 3. 検索結果を使ったファクトチェック
+            # 3. 検索結果を使ったファクトチェック（日時認識を強化）
             status_area.info("🤖 3/3 検索結果と照らし合わせて検証中...")
             
             final_prompt = f"""
-            あなたは厳格なファクトチェッカーです。
-            以下の「検証対象テキスト」を、**「最新の検索結果」**およびあなたの知識に基づいて検証してください。
+            あなたは冷徹なファクトチェッカーです。
+            以下の「検証対象テキスト」を、**「最新の検索結果」**と照らし合わせて検証してください。
 
-            【重要】
-            - AIの学習データよりも、**「最新の検索結果」の情報を優先**してください（例：現在の首相、最新の科学的発見など）。
-            - 検索結果と矛盾する記述、または科学的・歴史的に疑わしい記述（ニセ科学、陰謀論、デマ）を抽出してください。
+            【最重要：日時認識】
+            **今日は {reference_date.strftime('%Y年%m月%d日')} です。**
+            
+            1. 記事の日付が {reference_date.strftime('%Y年%m月%d日')} 以前であれば、それは「過去または現在の出来事」です。
+               **「未来の予測記事である」や「まだ起きていない」という言い訳は禁止します。**
+            
+            2. 記事の内容が、検索結果（エビデンス）と矛盾する場合、それは「事実誤認」または「フェイクニュース」として判定してください。
+               例：記事で「A氏が首相」としているが、検索結果で「B氏が首相」と出ている場合 → 誤りとして指摘。
 
             【検索された最新情報（エビデンス）】
             {search_results}
@@ -132,17 +153,16 @@ if st.button("🔍 検索して検証する", type="primary"):
             【出力フォーマット】
             Markdown形式で出力してください。
 
-            # 🚨 検証レポート
+            # 🚨 検証レポート (基準日: {reference_date.strftime('%Y/%m/%d')})
 
-            ## 疑わしい記述のリスト
+            ## 事実と異なる記述 / 疑わしい記述
             
-            ### 1. [疑わしい記述の引用]
-            - **判定:** 誤り / 疑義あり / ミスリード
-            - **理由:** [検索結果や科学的根拠に基づいた解説]
+            ### 1. [記述の引用]
+            - **判定:** ❌ 事実誤認 / フェイクニュース / 科学的誤り
+            - **理由:** [検索結果のエビデンス] によると、事実は〜〜です。
 
             ---
-            ※このレポートはAIとWeb検索結果に基づいています。
-
+            ※このレポートは基準日時点での検索結果に基づいています。
             """
             
             final_resp = model.generate_content(final_prompt)
