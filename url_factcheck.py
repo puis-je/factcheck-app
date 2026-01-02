@@ -21,21 +21,19 @@ ENTRY_ID = "entry.1770217829"
 # ==========================================
 
 # ページ設定
-st.set_page_config(page_title="AI Fact Checker Pro (Hybrid)", layout="wide")
+st.set_page_config(page_title="AI Fact Checker Pro (2026 Edition)", layout="wide")
 
 # --- ログ送信関数 ---
 def send_log_to_google_form(checked_url):
     """GoogleフォームにURLを送信して記録する"""
-    # IDが初期値のままなら送信しない
     if ENTRY_ID == "entry.123456789":
         return
 
     try:
         data = {ENTRY_ID: checked_url}
-        # 送信（ユーザーには見えない裏側で実行）
         requests.post(FORM_URL, data=data, timeout=2)
     except:
-        pass # エラーが出てもアプリは止めない
+        pass
 
 # --- セッションステートの初期化 ---
 if 'result_md' not in st.session_state:
@@ -64,20 +62,22 @@ with st.sidebar:
         st.markdown("[Google AI Studio](https://aistudio.google.com/app/apikey) で取得して貼り付けてください。")
     api_key = st.text_input("Google Gemini APIキー", type="password", placeholder="AIzaSy...")
     
-    # モデル選択
+    # モデル選択（2026年最新ラインナップ）
     st.subheader("🤖 モデル選択")
     model_options = {
-        "Gemini 2.5 Flash (標準・安定版)": "gemini-2.5-flash",
-        "Gemini 3 Pro (最新・最高性能)": "gemini-3.0-pro",
-        "Gemini 3 Flash (最新・高速)": "gemini-3.0-flash",
+        "Gemini 3.0 Flash (最新・高速・推奨)": "gemini-3.0-flash",
+        "Gemini 3.0 Pro (最新・最高性能)": "gemini-3.0-pro",
+        "Gemini 2.5 Flash (安定版)": "gemini-2.5-flash",
         "Gemini 2.5 Pro (高精度)": "gemini-2.5-pro",
         "Gemini 2.5 Flash-Lite (軽量)": "gemini-2.5-flash-lite",
         "Custom (手動入力)": "custom"
     }
+    
+    # デフォルトを Gemini 3.0 Flash (index=0) に設定
     selected_label = st.selectbox("使用するGeminiモデル", list(model_options.keys()), index=0)
     
     if selected_label == "Custom (手動入力)":
-        model_name = st.text_input("モデルIDを入力", "gemini-2.5-flash")
+        model_name = st.text_input("モデルIDを入力", "gemini-3.0-flash")
     else:
         model_name = model_options[selected_label]
 
@@ -90,7 +90,7 @@ with st.sidebar:
         st.rerun()
 
 # --- メインエリア ---
-st.title("🛡️ AI Fact Checker Pro")
+st.title("🛡️ AI Fact Checker Pro (2026 Edition)")
 st.markdown(f"""
 Web記事を読み込み、**「最新の検索結果」**と**「AIの科学的・歴史的知識」**を組み合わせてファクトチェックを行います。
 基準日: **{reference_date.strftime('%Y/%m/%d')}**
@@ -104,7 +104,7 @@ if st.button("🔍 検索して検証する", type="primary"):
     elif not url_input:
         st.warning("URLを入力してください")
     else:
-        # ★ログ送信実行
+        # ログ送信
         send_log_to_google_form(url_input)
         
         status_area = st.empty()
@@ -211,7 +211,7 @@ if st.button("🔍 検索して検証する", type="primary"):
 # --- 結果表示 ---
 if st.session_state.result_md:
     st.subheader("📊 検証結果")
-    st.warning("⚠️ 注意: 最新のニュースについては検索結果を優先していますが、一般的な科学・歴史についてはAIの学習データ（2024年以前の情報を含む）に基づいて判定している場合があります。")
+    st.warning("⚠️ 注意: 最新のニュースについては検索結果を優先していますが、一般的な科学・歴史についてはAIの学習データに基づいて判定している場合があります。")
     st.markdown(st.session_state.result_md)
     
     with st.expander("🔍 参照した検索データを見る"):
