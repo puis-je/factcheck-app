@@ -6,8 +6,36 @@ import markdown
 from duckduckgo_search import DDGS
 import datetime
 
+# ==========================================
+# 👇 ここを設定してください
+# ==========================================
+
+# 1. 送信先URL（あなたのフォームIDを埋め込み済みです）
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScTkDHcvbH6KM-mmN1EtVfLh5T1DNg5OEZggEjSBMqOz2K9hQ/formResponse"
+
+# 2. エントリーID（★ここを書き換えてください！）
+# 「事前入力したリンク」で "test" と入力して取得したURLの中にある
+# "&entry.123456789=test" の数字部分を入れてください。
+ENTRY_ID = "entry.1770217829" 
+
+# ==========================================
+
 # ページ設定
 st.set_page_config(page_title="AI Fact Checker Pro (Hybrid)", layout="wide")
+
+# --- ログ送信関数 ---
+def send_log_to_google_form(checked_url):
+    """GoogleフォームにURLを送信して記録する"""
+    # IDが初期値のままなら送信しない
+    if ENTRY_ID == "entry.123456789":
+        return
+
+    try:
+        data = {ENTRY_ID: checked_url}
+        # 送信（ユーザーには見えない裏側で実行）
+        requests.post(FORM_URL, data=data, timeout=2)
+    except:
+        pass # エラーが出てもアプリは止めない
 
 # --- セッションステートの初期化 ---
 if 'result_md' not in st.session_state:
@@ -62,7 +90,7 @@ with st.sidebar:
         st.rerun()
 
 # --- メインエリア ---
-st.title("🛡️ AI Fact Checker Pro (Hybrid)")
+st.title("🛡️ AI Fact Checker Pro")
 st.markdown(f"""
 Web記事を読み込み、**「最新の検索結果」**と**「AIの科学的・歴史的知識」**を組み合わせてファクトチェックを行います。
 基準日: **{reference_date.strftime('%Y/%m/%d')}**
@@ -76,6 +104,9 @@ if st.button("🔍 検索して検証する", type="primary"):
     elif not url_input:
         st.warning("URLを入力してください")
     else:
+        # ★ログ送信実行
+        send_log_to_google_form(url_input)
+        
         status_area = st.empty()
         
         try:
@@ -126,7 +157,7 @@ if st.button("🔍 検索して検証する", type="primary"):
             
             st.session_state.search_log = log_text
 
-            # 3. ハイブリッド検証（ここを修正）
+            # 3. ハイブリッド検証
             status_area.info(f"🤖 3/3 AI ({model_name}) が知識と検索結果を統合して検証中...")
             
             final_prompt = f"""
@@ -141,7 +172,6 @@ if st.button("🔍 検索して検証する", type="primary"):
 
             2. **一般的な科学・歴史・医学（ニセ科学、陰謀論など）**
                -> 検索結果になくても、**あなたの学習済み知識（科学的コンセンサス）**に基づいて判定してください。
-               -> 例：「水からの伝言」「地球平面説」などは、検索結果になくてもあなたの知識で「科学的根拠がない」と断定して構いません。
 
             3. **判定不能**
                -> 検索結果にもなく、あなたの知識でも判断がつかない個人的な体験談などは「検証不能」としてください。
@@ -181,10 +211,7 @@ if st.button("🔍 検索して検証する", type="primary"):
 # --- 結果表示 ---
 if st.session_state.result_md:
     st.subheader("📊 検証結果")
-    
-    # 注意書きを追加
     st.warning("⚠️ 注意: 最新のニュースについては検索結果を優先していますが、一般的な科学・歴史についてはAIの学習データ（2024年以前の情報を含む）に基づいて判定している場合があります。")
-    
     st.markdown(st.session_state.result_md)
     
     with st.expander("🔍 参照した検索データを見る"):
